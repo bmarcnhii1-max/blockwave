@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BlockWave launcher foreground: shield + prohibition + green check.
+     Drawn on a 108dp grid; the safe zone for adaptive icons is the center 66dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Shield (full, base blue) -->
+    <path
+        android:fillColor="#1E88E5"
+        android:pathData="M54,20 C67,27 79,30 85,30 L85,53 C85,72 72,82 54,89 C36,82 23,72 23,53 L23,30 C29,30 41,27 54,20 Z" />
+    <!-- Shield right half (darker) -->
+    <path
+        android:fillColor="#1565C0"
+        android:pathData="M54,20 C67,27 79,30 85,30 L85,53 C85,72 72,82 54,89 Z" />
+
+    <!-- Prohibition circle -->
+    <path
+        android:strokeColor="#0A1633"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,41 m-14,0 a14,14 0,1,0 28,0 a14,14 0,1,0 -28,0" />
+    <!-- Prohibition slash -->
+    <path
+        android:strokeColor="#0A1633"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="round"
+        android:pathData="M44,65 L64,45" />
+
+    <!-- Green check (lower right, overlapping the shield edge) -->
+    <path
+        android:strokeColor="#22C55E"
+        android:strokeWidth="7.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M67,63 L74,70 L88,51" />
+</vector>

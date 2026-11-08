@@ -1,0 +1,26 @@
+NoAds Browser
+============
+
+This product is a fork of Lightning Browser (https://github.com/anthonycr/Lightning-Browser),
+Copyright 2014 Anthony Restaino and Lightning Browser contributors.
+
+Lightning Browser is licensed under the Mozilla Public License, v. 2.0 (MPL-2.0).
+The full license text is in the LICENSE file of this repository. Modifications to the
+MPL-covered files are also licensed under MPL-2.0.
+
+Changes made in this fork (MPL-2.0):
+- EasyList-style ad blocking engine in acr.browser.lightning.adblock.easylist
+  (parser, matcher, downloader, composite with the upstream hosts-file blocker).
+- Filter list registry (EasyList, RU AdList, EasyPrivacy enabled by default;
+  AdGuard Mobile Ads, Fanboy's Annoyances behind the "Maximum" toggle).
+- Blocked-request counter in TabWebViewClient, shown in the Page Tools sheet.
+- Cosmetic (element-hiding) filtering: `##` selectors parsed from the same lists and injected
+  as CSS; ad blocker pre-warmed at app start with a readiness gate so the first page is not
+  raced against the filter download.
+- Ad blocking enabled by default; applicationId changed to com.noads.browser;
+  app name changed to "BlockWave".
+
+Third-party filter lists are downloaded at runtime and are NOT included in this
+repository. EasyList, EasyPrivacy, RU AdList and EasyList Adult are maintained by
+their respective authors (EasyList project). Watching a filter list
+does not transfer any rights in this project.
