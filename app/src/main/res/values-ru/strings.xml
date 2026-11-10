@@ -205,6 +205,9 @@
     <string name="do_not_track">Запрашивать \'Do Not Track\'</string>
     <string name="remove_identifying_headers">Удалять идентифиц. заголовки</string>
     <string name="action_add_to_homescreen">Добавить на дом. экран</string>
+    <string name="action_open_in_gecko">Открыть в Gecko (бета)</string>
+    <string name="gecko_start_page">https://www.google.com</string>
+    <string name="message_gecko_unavailable">Движок Gecko недоступен на этом устройстве</string>
     <string name="message_added_to_homescreen">Ярлык добавлен на домашний экран</string>
     <string name="action_delete_all_bookmarks">Удалить все закладки</string>
 

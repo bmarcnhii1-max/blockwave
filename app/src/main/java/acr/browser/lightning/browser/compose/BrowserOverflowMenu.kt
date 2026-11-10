@@ -96,6 +96,13 @@ fun BrowserOverflowMenu(presenter: BrowserPresenter, browserViewState: BrowserCo
             )
             if (browserViewState.enableFullMenu) {
                 DropdownMenuItem(
+                    text = { DropdownText(stringResource(R.string.action_open_in_gecko)) },
+                    onClick = {
+                        presenter.onEvent(BrowserUiEvent.MenuClick(MenuSelection.OPEN_IN_GECKO))
+                        dropDownExpanded = false
+                    }
+                )
+                DropdownMenuItem(
                     text = { DropdownText(stringResource(R.string.action_copy)) },
                     onClick = {
                         presenter.onEvent(BrowserUiEvent.MenuClick(MenuSelection.COPY_LINK))

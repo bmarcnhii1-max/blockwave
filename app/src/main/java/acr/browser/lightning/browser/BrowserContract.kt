@@ -147,6 +147,11 @@ interface BrowserContract {
          * launch the incognito browser and load the provided [url].
          */
         fun launchIncognito(url: String?)
+
+        /**
+         * Open the provided [url] in the experimental Gecko-engine screen.
+         */
+        fun openInGecko(url: String?)
     }
 
     /**

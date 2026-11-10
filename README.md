@@ -42,6 +42,15 @@ A fast Android browser with a strong built-in ad blocker.
   ad/pop-under networks are covered by the same lists. Ads served from the same domain as the
   content, server-side ads, and anti-adblock walls are only partially coverable by lists.
 
+### Gecko engine (experimental, phase 1)
+
+The browser runs on the system WebView. A standalone GeckoView 160 screen exists alongside it:
+menu → "Open in Gecko (beta)" opens the current page in a Gecko session with strict tracking
+protection. It is a minimal viewer (address bar, progress, back navigation), not yet integrated
+with tabs/history/bookmarks/downloads/adblock lists. Consequences of this phase: minSdk is now
+26 (Android 8.0), and the APK grew a lot (Gecko native libraries; debug builds ship arm64 only,
+release keeps all ABIs).
+
 ### Build
 
 Requirements: JDK 21+ (Gradle daemon toolchain), Android SDK platform 37 / build-tools 37.

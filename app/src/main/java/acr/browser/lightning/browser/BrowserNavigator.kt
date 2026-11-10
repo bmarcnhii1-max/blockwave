@@ -86,6 +86,10 @@ class BrowserNavigator @Inject constructor(
         IncognitoBrowserActivity.launch(activity, url)
     }
 
+    override fun openInGecko(url: String?) {
+        acr.browser.lightning.browser.gecko.GeckoBrowserActivity.launch(activity, url)
+    }
+
     companion object {
         private const val TAG = "BrowserNavigator"
     }

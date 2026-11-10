@@ -150,6 +150,12 @@
             </intent-filter>
         </activity>
         <activity
+            android:name="acr.browser.lightning.browser.gecko.GeckoBrowserActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard"
+            android:exported="false"
+            android:theme="@style/Theme.DarkTheme"
+            android:windowSoftInputMode="stateHidden|adjustResize" />
+        <activity
             android:name=".settings.activity.SettingsActivity"
             android:colorMode="wideColorGamut"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard"

@@ -18,7 +18,8 @@ android {
 
     defaultConfig {
         buildToolsVersion = "37.0.0"
-        minSdk = 24
+        // 26 (Android 8.0): minimum required by GeckoView 160 (experimental engine).
+        minSdk = 26
         targetSdk = 37
         versionName = "5.1.0"
         vectorDrawables.useSupportLibrary = true
@@ -49,6 +50,12 @@ android {
             setProguardFiles(listOf("proguard-project.txt"))
             enableUnitTestCoverage = false
             enableAndroidTestCoverage = false
+
+            // Debug only: GeckoView native libs are huge — package arm64 (physical test
+            // devices) instead of every ABI. Release keeps all ABIs below.
+            ndk {
+                abiFilters.add("arm64-v8a")
+            }
         }
 
         named("release") {
@@ -178,6 +185,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:$serialization")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:$serialization")
     implementation("org.jsoup:jsoup:1.24.1")
+    // Experimental Gecko engine (BlockWave phase 1): standalone Gecko tab alongside WebView.
+    implementation("org.mozilla.geckoview:geckoview:160.0.20261104181552")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("com.squareup.leakcanary:leakcanary-android-core:$leakcanary")
@@ -217,6 +226,9 @@ licensee {
     allow(SpdxId.Apache_20)
     allow(SpdxId.BSD_3_Clause)
     allowUrl("https://jsoup.org/license")
+    // GeckoView (MPL-2.0) + its transitive Play Services / media3 artifacts.
+    allowUrl("http://mozilla.org/MPL/2.0/")
+    allowUrl("https://developer.android.com/studio/terms.html")
 }
 
 kotlin {

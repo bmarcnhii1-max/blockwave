@@ -71,13 +71,21 @@ class BrowserApp : Application() {
             )
         }
 
-        val isIncognito = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            getProcessName() == "$packageName:incognito"
+        val processName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getProcessName()
         } else {
-            false
+            null
+        }
+        val isIncognito = processName == "$packageName:incognito"
+        val isMainProcess = processName == null || processName == packageName
+        if (!isMainProcess && !isIncognito) {
+            // GeckoView spawns child processes (gpu, socket, crashhelper, …) that run this
+            // same Application class. They must not touch WebView/DataStore/Dagger: WebView
+            // crashes with a data-directory lock error when initialized twice.
+            return
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && isIncognito) {
+        if (isIncognito) {
             File(dataDir, "app_webview_incognito").deleteRecursively()
             WebView.setDataDirectorySuffix("incognito")
         }

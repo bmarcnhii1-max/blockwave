@@ -12,6 +12,7 @@ enum class MenuSelection {
     FIND,
     COPY_LINK,
     ADD_TO_HOME,
+    OPEN_IN_GECKO,
     BOOKMARKS,
     ADD_BOOKMARK,
     SETTINGS,

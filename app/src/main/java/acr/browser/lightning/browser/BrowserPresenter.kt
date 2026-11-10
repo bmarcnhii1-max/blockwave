@@ -638,6 +638,15 @@ class BrowserPresenter @Inject constructor(
             MenuSelection.ADD_TO_HOME -> currentTab?.url?.takeIf { !it.isSpecialUrl() }
                 ?.let { addToHomeScreen() }
 
+            MenuSelection.OPEN_IN_GECKO -> {
+                val url = currentTab?.url?.takeIf { !it.isSpecialUrl() }
+                try {
+                    navigator.openInGecko(url)
+                } catch (_: Exception) {
+                    showSnackbar(resourceProvider.stringResource(R.string.message_gecko_unavailable))
+                }
+            }
+
             MenuSelection.BOOKMARKS -> state.updateSelf { copy(openBookmarks = true) }
             MenuSelection.ADD_BOOKMARK -> currentTab?.url?.takeIf { !it.isSpecialUrl() }
                 ?.let { showAddBookmarkDialog() }

@@ -280,6 +280,9 @@
     <string name="remove_identifying_headers">Remove identifying headers</string>
     <string name="webrtc_support">WebRTC Support</string>
     <string name="action_add_to_homescreen">Add to home screen</string>
+    <string name="action_open_in_gecko">Open in Gecko (beta)</string>
+    <string name="gecko_start_page">https://www.google.com</string>
+    <string name="message_gecko_unavailable">Gecko engine is not available on this device</string>
     <string name="message_added_to_homescreen">Shortcut added to home screen</string>
     <string name="shortcut_message_failed_to_add">Sorry, your launcher does not support shortcuts.</string>
     <string name="action_delete_all_bookmarks">Delete all bookmarks</string>
