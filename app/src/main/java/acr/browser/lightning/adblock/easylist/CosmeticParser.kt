@@ -31,6 +31,7 @@ class CosmeticParser {
         val general = LinkedHashSet<String>()
         val domain = mutableMapOf<String, MutableList<String>>()
         val exceptions = mutableMapOf<String, MutableSet<String>>()
+        val excluded = LinkedHashSet<String>()
         var skippedUnsafe = 0
 
         for (rawLine in lines) {
@@ -58,18 +59,46 @@ class CosmeticParser {
                 // removing the selector from the general set at CSS build time is not possible
                 // here, so it is simply ignored (exceptions are best-effort in MVP).
             } else {
+                var hasIncludes = false
                 for (d in domains) {
-                    if (isExceptionRule) {
-                        exceptions.getOrPut(d) { mutableSetOf() }.add(selector)
-                    } else {
-                        domain.getOrPut(d) { mutableListOf() }.add(selector)
+                    when {
+                        d == "*" -> {
+                            if (!isExceptionRule) general.add(selector)
+                            hasIncludes = true
+                        }
+                        d.startsWith("~") -> {
+                            val excludedDomain = d.substring(1)
+                            if (excludedDomain.isEmpty() || excludedDomain.contains("*")) {
+                                skippedUnsafe++
+                                continue
+                            }
+                            if (!isExceptionRule) {
+                                excluded.add(excludedDomain)
+                            } else {
+                                exceptions.getOrPut(excludedDomain) { mutableSetOf() }.add(selector)
+                            }
+                        }
+                        d.contains("*") -> {
+                            skippedUnsafe++
+                        }
+                        else -> {
+                            hasIncludes = true
+                            if (isExceptionRule) {
+                                exceptions.getOrPut(d) { mutableSetOf() }.add(selector)
+                            } else {
+                                domain.getOrPut(d) { mutableListOf() }.add(selector)
+                            }
+                        }
                     }
+                }
+                if (!isExceptionRule && !hasIncludes && domains.all { it.startsWith("~") }) {
+                    general.add(selector)
                 }
             }
         }
 
         return ParsedCosmetics(
-            CosmeticRules(general.toList(), domain, exceptions),
+            CosmeticRules(general.toList(), domain, exceptions, excluded),
             skippedUnsafe,
         )
     }
@@ -83,6 +112,11 @@ class CosmeticParser {
         ) {
             return false
         }
+        // A backslash escapes the injected `{` and merges all following rules into one
+        // broken rule; `/*` comments out the rest of the CSS chunk. Both silently
+        // disable chunk-wide cosmetic filtering, so reject them.
+        if (selector.contains('\\')) return false
+        if (selector.contains("/*") || selector.contains("*/")) return false
         val lower = selector.lowercase()
         if (lower.contains("url(") || lower.contains("expression(") ||
             lower.contains("javascript:") || lower.contains("@import")

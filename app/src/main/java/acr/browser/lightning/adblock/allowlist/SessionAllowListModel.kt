@@ -7,6 +7,7 @@ import acr.browser.lightning.database.allowlist.AllowListEntry
 import acr.browser.lightning.log.Logger
 import androidx.core.net.toUri
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -21,13 +22,16 @@ class SessionAllowListModel @Inject constructor(
     private val coroutineDispatchers: CoroutineDispatchers,
 ) : AllowListModel {
 
-    private var whitelistSet = hashSetOf<String>()
+    @Volatile
+    private var whitelistSet: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     init {
         appCoroutineScope.launch(coroutineDispatchers.default) {
-            whitelistSet = adBlockAllowListModel.allAllowListItems()
-                .map(AllowListEntry::domain)
-                .toHashSet()
+            val loaded: MutableSet<String> = ConcurrentHashMap.newKeySet()
+            loaded.addAll(
+                adBlockAllowListModel.allAllowListItems().map(AllowListEntry::domain)
+            )
+            whitelistSet = loaded
         }
     }
 

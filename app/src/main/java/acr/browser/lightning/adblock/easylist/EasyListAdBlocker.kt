@@ -10,7 +10,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -34,7 +37,12 @@ class EasyListAdBlocker @Inject constructor(
 
     private val parser = EasyListParser()
     private val cosmeticParser = CosmeticParser()
-    private val matcher = AdblockMatcher()
+
+    @Volatile
+    private var matcher = AdblockMatcher()
+
+    /** Serializes concurrent refresh()/reload()/init loads into one in-flight rebuild. */
+    private val loadMutex = Mutex()
 
     @Volatile
     private var cosmeticRules: CosmeticRules = CosmeticRules.EMPTY
@@ -85,12 +93,14 @@ class EasyListAdBlocker @Inject constructor(
         }
     }
 
-    private suspend fun loadEnabledLists(refreshStale: Boolean, forceDownload: Boolean = false) {
+    private suspend fun loadEnabledLists(refreshStale: Boolean, forceDownload: Boolean = false) =
+        loadMutex.withLock {
         val enabledIds = userPreferencesDataStore.enabledFilterListIds()
         val fresh = AdblockMatcher()
         val generalCosmetics = LinkedHashSet<String>()
         val domainCosmetics = mutableMapOf<String, MutableList<String>>()
         val cosmeticExceptions = mutableMapOf<String, MutableSet<String>>()
+        val cosmeticExcluded = LinkedHashSet<String>()
 
         for (listId in enabledIds) {
             val list = FilterListRegistry.byId(listId) ?: continue
@@ -105,35 +115,48 @@ class EasyListAdBlocker @Inject constructor(
                 continue
             }
             try {
-                val text = withContext(coroutineDispatchers.io) { file.readText() }
-                val parsed = parser.parse(text, list.id)
-                val cosmetics = cosmeticParser.parse(text)
-                fresh.addRules(parsed.rules)
-                generalCosmetics.addAll(cosmetics.rules.generalSelectors)
-                for ((domain, selectors) in cosmetics.rules.domainSelectors) {
-                    domainCosmetics.getOrPut(domain) { mutableListOf() }.addAll(selectors)
+                val texts = withContext(coroutineDispatchers.io) {
+                    collectListTexts(list, file, refreshStale, forceDownload)
                 }
-                for ((domain, selectors) in cosmetics.rules.domainExceptions) {
-                    cosmeticExceptions.getOrPut(domain) { mutableSetOf() }.addAll(selectors)
+                var networkTotal = 0
+                var cosmeticTotal = 0
+                var skippedTotal = 0
+                var unsafeTotal = 0
+                for ((origin, text) in texts) {
+                    val parsed = parser.parse(text, origin)
+                    val cosmetics = cosmeticParser.parse(text)
+                    fresh.addRules(parsed.rules)
+                    generalCosmetics.addAll(cosmetics.rules.generalSelectors)
+                    for ((domain, selectors) in cosmetics.rules.domainSelectors) {
+                        domainCosmetics.getOrPut(domain) { mutableListOf() }.addAll(selectors)
+                    }
+                    for ((domain, selectors) in cosmetics.rules.domainExceptions) {
+                        cosmeticExceptions.getOrPut(domain) { mutableSetOf() }.addAll(selectors)
+                    }
+                    cosmeticExcluded.addAll(cosmetics.rules.excludedDomains)
+                    networkTotal += parsed.rules.size
+                    cosmeticTotal += cosmetics.rules.totalSelectors
+                    skippedTotal += parsed.skippedUnsupported
+                    unsafeTotal += cosmetics.skippedUnsafe
                 }
                 logger.log(
                     TAG,
-                    "List ${list.id}: ${parsed.rules.size} network rules, " +
-                        "${cosmetics.rules.totalSelectors} cosmetic selectors " +
-                        "(skipped unsupported=${parsed.skippedUnsupported}, unsafe cosmetic=${cosmetics.skippedUnsafe})"
+                    "List ${list.id}: $networkTotal network rules, " +
+                        "$cosmeticTotal cosmetic selectors " +
+                        "(skipped unsupported=$skippedTotal, unsafe cosmetic=$unsafeTotal)"
                 )
             } catch (e: Exception) {
                 logger.log(TAG, "Failed to parse list ${list.id}", e)
             }
         }
 
-        // Swap contents atomically from the caller's perspective.
-        matcher.clear()
-        matcher.addRules(snapshotRules(fresh))
+        // Atomic swap: readers always see one fully built matcher, never a half-cleared one.
+        matcher = fresh
         cosmeticRules = CosmeticRules(
             generalSelectors = generalCosmetics.toList(),
             domainSelectors = domainCosmetics,
             domainExceptions = cosmeticExceptions,
+            excludedDomains = cosmeticExcluded,
         )
         _ruleCount.value = matcher.ruleCount
         logger.log(
@@ -141,6 +164,58 @@ class EasyListAdBlocker @Inject constructor(
             "EasyList engine ready: ${matcher.ruleCount} network rules, " +
                 "${cosmeticRules.totalSelectors} cosmetic selectors from ${enabledIds.size} list(s)"
         )
+        }
+
+    /**
+     * Reads the list file plus every `%include path%` part it references (RU AdList and
+     * similar lists are split into parts this way; without this the RU lists contribute a
+     * dozen rules instead of thousands). Parts are downloaded relative to the list URL
+     * and cached next to it. Depth is capped at one level with a visited set.
+     */
+    private suspend fun collectListTexts(
+        list: FilterList,
+        file: File,
+        refreshStale: Boolean,
+        forceDownload: Boolean,
+    ): List<Pair<String, String>> {
+        val out = ArrayList<Pair<String, String>>()
+        val main = file.readText()
+        out.add(list.id to main)
+        val base = list.url.substringBeforeLast('/') + "/"
+        val seen = LinkedHashSet<String>()
+        for (line in main.lineSequence()) {
+            val trimmed = line.trim()
+            if (!trimmed.startsWith("%include ") || !trimmed.endsWith("%")) continue
+            val reference = trimmed.removePrefix("%include ").removeSuffix("%").trim()
+            if (reference.isEmpty() || reference.contains("..")) continue
+            if (!seen.add(reference)) continue
+            if (seen.size > MAX_INCLUDES) break
+            // Three spellings exist in the wild:
+            // - relative: `advblock/general_block.txt` (resolved against the list URL)
+            // - absolute: `%include https://…%` (bitblock.txt Fanboy parts)
+            // - repo shorthand: `%include ruadlist:bitblockonly.txt%`
+            val partUrl = when {
+                reference.startsWith("https://") -> {
+                    if (!reference.startsWith("https://raw.githubusercontent.com/")) continue
+                    reference
+                }
+                reference.startsWith("ruadlist:") -> {
+                    RUADLIST_RAW_BASE + reference.removePrefix("ruadlist:")
+                }
+                reference.contains(":") || reference.startsWith("/") -> continue
+                else -> base + reference
+            }
+            val partFile = File(file.parentFile, "${list.id}__${reference.replace(Regex("[^A-Za-z0-9._-]"), "_")}")
+            val needsDownload = forceDownload || !partFile.exists() ||
+                (refreshStale && System.currentTimeMillis() - partFile.lastModified() > STALE_AFTER_MS)
+            if (needsDownload) {
+                downloader.downloadUrl(partUrl, partFile, "${list.id}/$reference")
+            }
+            if (partFile.exists()) {
+                out.add("${list.id}/$reference" to partFile.readText())
+            }
+        }
+        return out
     }
 
     /**
@@ -177,12 +252,6 @@ class EasyListAdBlocker @Inject constructor(
         return chunks
     }
 
-    private fun snapshotRules(other: AdblockMatcher): List<NetworkRule> {
-        // AdblockMatcher does not expose its rules; rebuild by re-parsing is wasteful, so the
-        // matcher keeps an internal snapshot copy instead (see AdblockMatcher.snapshot()).
-        return other.snapshot()
-    }
-
     override fun isAd(uri: Uri): Boolean {
         awaitReady()
         return matcher.isBlocked(uri.toString(), pageUrl = null, resourceType = null)
@@ -217,5 +286,8 @@ class EasyListAdBlocker @Inject constructor(
         private const val TAG = "EasyListAdBlocker"
         private const val STALE_AFTER_MS = 24L * 60 * 60 * 1000
         private const val READY_WAIT_MS = 10_000L
+        private const val MAX_INCLUDES = 32
+        private const val RUADLIST_RAW_BASE =
+            "https://raw.githubusercontent.com/easylist/ruadlist/master/"
     }
 }

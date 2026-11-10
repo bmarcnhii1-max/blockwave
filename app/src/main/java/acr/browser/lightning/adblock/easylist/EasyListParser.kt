@@ -164,27 +164,39 @@ class EasyListParser {
 
         when {
             core.startsWith("||") -> {
-                // ||example.com^ or ||example.com/path
+                // ||example.com^, ||example.com:8080/path, ||example.com|
                 var end = core.length
                 for (i in 2 until core.length) {
                     val c = core[i]
-                    if (c == '^' || c == '/' || c == '?') {
+                    if (c == '^' || c == '/' || c == '?' || c == '|') {
                         end = i
                         break
                     }
                 }
-                val host = core.substring(2, end).lowercase()
-                if (host.isEmpty() || !host.contains('.')) return null
-                anchor = host
+                val hostPart = core.substring(2, end).lowercase()
+                if (hostPart.isEmpty()) return null
+                // Split off an explicit :port so the anchor stays a bare registrable host.
+                val colonIdx = hostPart.indexOf(':')
+                val bareHost = if (colonIdx >= 0) hostPart.substring(0, colonIdx) else hostPart
+                val portPart = if (colonIdx >= 0) hostPart.substring(colonIdx) else ""
+                if (bareHost.isEmpty() || !bareHost.contains('.')) return null
+                anchor = bareHost
                 // Note: '.' is deliberately NOT a valid separator after the host, so
                 // ||example.com does not match example.com.evil.com. The separator after
                 // the host is enforced exactly once: either by the group below (pure
                 // `||domain` / `||domain^`), or by the first char of the remaining core
                 // (usually '/'). A leading '^' in the core is therefore stripped.
-                prefix = "^https?://([^/]*\\.)?" + Regex.escape(host)
+                // Any URL scheme is accepted (http/https/ws/…) like Adblock Plus.
+                prefix = "^[a-zA-Z][a-zA-Z0-9+.\\-]*:(?://)?([^/]*\\.)?" +
+                    Regex.escape(bareHost) + Regex.escape(portPart)
                 core = core.substring(end)
                 when {
                     core.isEmpty() -> suffix = "(:|/|\\?|#|$)"
+                    core == "|" || core == "^|" -> {
+                        // Trailing | end anchor (ABP converts ^| to ^).
+                        suffix = "$"
+                        core = ""
+                    }
                     core.startsWith("^") -> {
                         suffix = "(:|/|\\?|#|$)"
                         core = core.substring(1)
@@ -230,7 +242,9 @@ class EasyListParser {
     companion object {
         private const val ALL_BUT_MARKER = "__all_but__"
 
-        private const val SEPARATOR = "(?:[^a-zA-Z0-9\\-._~%!$&'()*+,;=:@]|$)"
+        // Adblock Plus treats everything outside [0-9a-zA-Z-._~%] as a separator,
+        // so `:`, `@`, `=`, `&`, `;`, `,`, `!`, `'` etc. all terminate a token.
+        private const val SEPARATOR = "(?:[^a-zA-Z0-9\\-._~%]|$)"
 
         private val SUPPORTED_TYPES = setOf(
             "script", "image", "stylesheet", "xmlhttprequest", "subdocument", "document",
@@ -240,7 +254,10 @@ class EasyListParser {
         /** True if [types] (with possible `~type` negations) matches [resourceType]. */
         fun typeMatches(types: Set<String>?, resourceType: String?): Boolean {
             if (types == null) return true
-            if (resourceType == null) return true // unknown type: do not skip the rule
+            // Unknown resource type must NOT satisfy a type-restricted rule: the WebView
+            // worker only knows extension-derived types, and treating XHR/iframe traffic
+            // as `image`/`script` is a real false-positive source.
+            if (resourceType == null) return false
             return if (types.contains(ALL_BUT_MARKER)) {
                 !types.contains("~$resourceType")
             } else {

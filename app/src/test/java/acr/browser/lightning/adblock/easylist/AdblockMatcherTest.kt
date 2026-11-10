@@ -95,4 +95,58 @@ class AdblockMatcherTest {
         assertThat(matcher.hostOf("https://example.com/x")).isEqualTo("example.com")
         assertThat(matcher.hostOf("not a url")).isNull()
     }
+
+    @Test
+    fun `sibling subdomains are first party`() {
+        val matcher = matcherWith("||ads.example.com^\$third-party")
+
+        assertThat(matcher.isBlocked("https://ads.example.com/x.js", "https://www.example.com/", "script")).isFalse()
+        assertThat(matcher.isBlocked("https://ads.example.com/x.js", "https://other.org/", "script")).isTrue()
+    }
+
+    @Test
+    fun `base domain handles two level suffixes`() {
+        assertThat(AdblockMatcher.baseDomain("a.example.co.uk")).isEqualTo("example.co.uk")
+        assertThat(AdblockMatcher.baseDomain("a.example.org")).isEqualTo("example.org")
+    }
+
+    @Test
+    fun `host extraction stops at query fragment and handles ipv6`() {
+        val matcher = AdblockMatcher()
+
+        assertThat(matcher.hostOf("https://ads.example.com?x=1")).isEqualTo("ads.example.com")
+        assertThat(matcher.hostOf("https://ads.example.com#frag")).isEqualTo("ads.example.com")
+        assertThat(matcher.hostOf("https://[2001:db8::1]/x")).isEqualTo("2001:db8::1")
+        assertThat(matcher.hostOf("https://[::1]:8080/x")).isEqualTo("::1")
+    }
+
+    @Test
+    fun `colon is a separator for caret anchor`() {
+        val matcher = matcherWith("|http://example.com^")
+
+        assertThat(matcher.isBlocked("http://example.com:8080/", "https://site/", null)).isTrue()
+    }
+
+    @Test
+    fun `double pipe matches websocket scheme`() {
+        val matcher = matcherWith("||example.com^\$websocket")
+
+        assertThat(matcher.isBlocked("ws://example.com/socket", "https://site/", "websocket")).isTrue()
+    }
+
+    @Test
+    fun `trailing pipe is an end anchor`() {
+        val matcher = matcherWith("||example.com|")
+
+        assertThat(matcher.isBlocked("https://example.com", "https://site/", null)).isTrue()
+        assertThat(matcher.isBlocked("https://example.com/", "https://site/", null)).isFalse()
+    }
+
+    @Test
+    fun `unknown resource type does not satisfy typed rules`() {
+        val matcher = matcherWith("||ads.example.com^\$image")
+
+        assertThat(matcher.isBlocked("https://ads.example.com/api/collect", "https://site/", null)).isFalse()
+        assertThat(matcher.isBlocked("https://ads.example.com/api/collect", "https://site/", "image")).isTrue()
+    }
 }

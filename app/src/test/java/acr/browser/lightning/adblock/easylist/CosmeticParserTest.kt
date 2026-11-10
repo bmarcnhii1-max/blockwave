@@ -36,12 +36,23 @@ class CosmeticParserTest {
             ##.foo{color:red}
             ##</style><script>alert(1)</script>
             ##.bar; color:red
+            ##.x/*
+            ##.y\.z
             ##.ok-class
             """.trimIndent()
         )
 
         assertThat(parsed.rules.generalSelectors).containsExactly(".ok-class")
-        assertThat(parsed.skippedUnsafe).isEqualTo(3)
+        assertThat(parsed.skippedUnsafe).isEqualTo(5)
+    }
+
+    @Test
+    fun `exclusions only domain applies everywhere except excluded`() {
+        val parsed = parser.parse("~example.com##.ad\n")
+
+        assertThat(parsed.rules.cssFor("https://other.com/")).contains(".ad{display:none!important}")
+        assertThat(parsed.rules.cssFor("https://example.com/")).isNull()
+        assertThat(parsed.rules.cssFor("https://sub.example.com/")).isNull()
     }
 
     @Test

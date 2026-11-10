@@ -6,27 +6,32 @@ package acr.browser.lightning.adblock.easylist
  * @param generalSelectors selectors applying to every page (from `##selector` rules).
  * @param domainSelectors selectors applying to specific domains (from `domain##selector` rules).
  * @param domainExceptions selectors un-hidden per domain (from `domain#@#selector` rules).
+ * @param excludedDomains domains for which the general selectors do not apply
+ * (from `~domain##selector` rules).
  */
 data class CosmeticRules(
     val generalSelectors: List<String>,
     val domainSelectors: Map<String, List<String>>,
     val domainExceptions: Map<String, Set<String>>,
+    val excludedDomains: Set<String> = emptySet(),
 ) {
     /**
      * Selectors hiding ad elements on [pageUrl], domain-specific first, then general.
-     * Exceptions are subtracted. Empty if nothing applies.
+     * Exceptions and exclusion-only domains are subtracted. Empty if nothing applies.
      */
     fun selectorsFor(pageUrl: String): List<String> {
         val host = AdblockMatcher().hostOf(pageUrl) ?: return emptyList()
         val selectors = LinkedHashSet<String>()
         for ((domain, list) in domainSelectors) {
-            if (host == domain || host.endsWith(".$domain")) {
+            if (domainMatches(host, domain)) {
                 selectors.addAll(list)
             }
         }
-        selectors.addAll(generalSelectors)
+        if (!isExcludedDomain(host)) {
+            selectors.addAll(generalSelectors)
+        }
         for ((domain, exceptions) in domainExceptions) {
-            if (host == domain || host.endsWith(".$domain")) {
+            if (domainMatches(host, domain)) {
                 selectors.removeAll(exceptions)
             }
         }
@@ -49,6 +54,12 @@ data class CosmeticRules(
 
     val totalSelectors: Int
         get() = generalSelectors.size + domainSelectors.values.sumOf { it.size }
+
+    private fun isExcludedDomain(host: String): Boolean =
+        excludedDomains.any { domainMatches(host, it) }
+
+    private fun domainMatches(host: String, domain: String): Boolean =
+        host == domain || host.endsWith(".$domain")
 
     companion object {
         val EMPTY = CosmeticRules(emptyList(), emptyMap(), emptyMap())

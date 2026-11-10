@@ -36,9 +36,14 @@ class FilterListDownloader @Inject constructor(
     fun cacheFile(listId: String): File =
         File(File(application.filesDir, CACHE_DIR), "$listId.txt")
 
-    suspend fun download(list: FilterList): Boolean = mutex.withLock {
+    suspend fun download(list: FilterList): Boolean =
+        downloadUrl(list.url, cacheFile(list.id), list.id)
+
+    /**
+     * Downloads [url] to [target]. Shared by list downloads and `%include` part files.
+     */
+    suspend fun downloadUrl(url: String, target: File, tag: String): Boolean = mutex.withLock {
         withContext(coroutineDispatchers.network) {
-            val target = cacheFile(list.id)
             val userAgent = try {
                 userAgentProvider.getUserAgent()
             } catch (e: Exception) {
@@ -46,7 +51,7 @@ class FilterListDownloader @Inject constructor(
                 FALLBACK_USER_AGENT
             }
             val requestBuilder = Request.Builder()
-                .url(list.url)
+                .url(url)
                 .header("User-Agent", userAgent)
                 .get()
             if (target.exists()) {
@@ -57,21 +62,42 @@ class FilterListDownloader @Inject constructor(
                 val response = okHttpClient.await().newCall(requestBuilder.build()).execute()
                 response.use {
                     if (it.code == 304) {
-                        logger.log(TAG, "List ${list.id} not modified")
+                        // Refresh the mtime so the next cold start skips the conditional
+                        // request instead of re-validating forever.
+                        target.setLastModified(System.currentTimeMillis())
+                        logger.log(TAG, "List $tag not modified")
                         return@withContext true
                     }
                     if (!it.isSuccessful) {
-                        logger.log(TAG, "List ${list.id} download failed: HTTP ${it.code}")
+                        logger.log(TAG, "List $tag download failed: HTTP ${it.code}")
                         return@withContext false
                     }
                     val body = it.body
                     if (body.contentLength() > MAX_BYTES) {
-                        logger.log(TAG, "List ${list.id} exceeds size cap")
+                        logger.log(TAG, "List $tag exceeds size cap")
                         return@withContext false
                     }
-                    val bytes = body.bytes()
-                    if (bytes.size > MAX_BYTES) {
-                        logger.log(TAG, "List ${list.id} exceeds size cap")
+                    // Enforce the cap while streaming: body.bytes() would buffer an
+                    // unbounded chunked response before we could check its size.
+                    // (readByteArray(n) cannot be used: it throws EOFException unless
+                    // the stream holds exactly n bytes.)
+                    val bytes = try {
+                        body.source().use { source ->
+                            val sink = okio.Buffer()
+                            var total = 0L
+                            while (true) {
+                                val read = source.read(sink, 8192L)
+                                if (read == -1L) break
+                                total += read
+                                if (total > MAX_BYTES) {
+                                    logger.log(TAG, "List $tag exceeds size cap")
+                                    return@withContext false
+                                }
+                            }
+                            sink.readByteArray()
+                        }
+                    } catch (e: Exception) {
+                        logger.log(TAG, "List $tag download failed", e)
                         return@withContext false
                     }
                     target.parentFile?.mkdirs()
@@ -81,11 +107,11 @@ class FilterListDownloader @Inject constructor(
                         tmp.copyTo(target, overwrite = true)
                         tmp.delete()
                     }
-                    logger.log(TAG, "Downloaded list ${list.id}: ${bytes.size} bytes")
+                    logger.log(TAG, "Downloaded list $tag: ${bytes.size} bytes")
                     true
                 }
             } catch (e: Exception) {
-                logger.log(TAG, "List ${list.id} download failed", e)
+                logger.log(TAG, "List $tag download failed", e)
                 false
             }
         }

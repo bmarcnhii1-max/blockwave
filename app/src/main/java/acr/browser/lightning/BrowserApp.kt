@@ -44,6 +44,9 @@ class BrowserApp : Application() {
     internal lateinit var appCoroutineScope: AppCoroutineScope
 
     @Inject
+    internal lateinit var coroutineDispatchers: acr.browser.lightning.concurrency.CoroutineDispatchers
+
+    @Inject
     internal lateinit var bookmarkExporter: BookmarkExporter
 
     @Inject
@@ -104,9 +107,17 @@ class BrowserApp : Application() {
             cleanup.cleanup()
         }
 
-        // Pre-warm the ad blocker so filter lists start downloading immediately instead of
-        // racing the first page the user opens.
-        easyListAdBlocker.get()
+        // Pre-warm the ad blocker off the main thread so filter lists start downloading
+        // immediately instead of racing the first page the user opens. Resolving the
+        // Deferred early also means TabWebViewClient's bounded waits complete instantly
+        // instead of stalling request threads on cold start.
+        val warmBlocker = easyListAdBlocker
+        appCoroutineScope.launch(coroutineDispatchers.io) {
+            try {
+                warmBlocker.get()
+            } catch (_: Exception) {
+            }
+        }
 
         appCoroutineScope.launch {
             if (bookmarkModel.count() == 0L) {

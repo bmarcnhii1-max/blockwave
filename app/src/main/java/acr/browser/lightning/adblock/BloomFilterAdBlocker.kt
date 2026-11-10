@@ -19,13 +19,12 @@ import acr.browser.lightning.extensions.toast
 import acr.browser.lightning.log.Logger
 import android.app.Application
 import android.net.Uri
-import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import java.net.URISyntaxException
 import java.util.concurrent.CountDownLatch
@@ -61,7 +60,13 @@ class BloomFilterAdBlocker @Inject constructor(
         objectStoreDispatcher = objectStoreDispatcher,
     )
 
-    private val loadHostsFlow = MutableStateFlow(true)
+    /**
+     * Refresh requests. CONFLATED: rapid taps collapse into one pending reload. Carries the
+     * force flag so a cold start can reuse the cached filter while an explicit user refresh
+     * always re-downloads. (Previously a MutableStateFlow(true): tryEmit(true) never fired
+     * because StateFlow conflates equal values — the refresh button did nothing.)
+     */
+    private val refreshChannel = Channel<Boolean>(Channel.CONFLATED)
 
     /**
      * Opened once the initial hosts load has finished (delegate set, or failed). [isAd]
@@ -70,59 +75,75 @@ class BloomFilterAdBlocker @Inject constructor(
     private val readyLatch = CountDownLatch(1)
 
     init {
-        loadHostsFlow
-            .buffer(capacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-            .map { forceRefresh ->
-                val storedBloomFilter = objectStore.retrieve()
-                val hostsDataSource = hostsDataSourceProvider.createHostsDataSource()
-                val hostsDataSourceIdentifier = hostsDataSource.identifier()
-                // Force a new hosts request if the hosts are out of date or if the repo has no hosts.
-                if (!forceRefresh &&
-                    storedBloomFilter != null &&
-                    hostsRepository.hasHosts() &&
-                    hostsPreferenceStore.identity.get() == hostsDataSourceIdentifier
-                ) {
-                    return@map storedBloomFilter
-                }
+        appCoroutineScope.launch {
+            try {
+                // Initial load reuses the cache when it is fresh (forceRefresh = false).
+                refreshChannel.send(false)
+                refreshChannel.receiveAsFlow()
+                    .map { forceRefresh ->
+                        val storedBloomFilter = objectStore.retrieve()
+                        val hostsDataSource = hostsDataSourceProvider.createHostsDataSource()
+                        val hostsDataSourceIdentifier = hostsDataSource.identifier()
+                        // Force a new hosts request if the hosts are out of date or if the repo has no hosts.
+                        if (!forceRefresh &&
+                            storedBloomFilter != null &&
+                            hostsRepository.hasHosts() &&
+                            hostsPreferenceStore.identity.get() == hostsDataSourceIdentifier
+                        ) {
+                            return@map storedBloomFilter
+                        }
 
-                when (val result = hostsDataSource.loadHosts()) {
-                    is HostsResult.Failure -> {
-                        logger.log(TAG, "Unable to load hosts", result.cause)
-                        null
-                    }
+                        when (val result = hostsDataSource.loadHosts()) {
+                            is HostsResult.Failure -> {
+                                logger.log(TAG, "Unable to load hosts", result.cause)
+                                // Fall back to the cached filter instead of disabling blocking
+                                // entirely: a failed download must not wipe a good cache.
+                                storedBloomFilter
+                            }
 
-                    is HostsResult.Success -> {
-                        // Clear out the old hosts and bloom filter now that we have the new hosts.
-                        hostsRepository.removeAllHosts()
-                        hostsRepository.addHosts(result.hosts)
-                        hostsPreferenceStore.identity.set(hostsDataSourceIdentifier)
-                        createAndSaveBloomFilter(result.hosts)
+                            is HostsResult.Success -> {
+                                // Clear out the old hosts and bloom filter now that we have the new hosts.
+                                hostsRepository.removeAllHosts()
+                                hostsRepository.addHosts(result.hosts)
+                                hostsPreferenceStore.identity.set(hostsDataSourceIdentifier)
+                                createAndSaveBloomFilter(result.hosts)
+                            }
+                        }
                     }
-                }
-            }
-            .flowOn(coroutineDispatchers.io)
-            .onEach {
-                // If we were unsuccessful in loading hosts, and we don't have hosts in the repo, don't
-                // allow initialization, as false positives will result in bad browsing experience.
-                if (hostsRepository.hasHosts() && it != null) {
-                    bloomFilter.delegate = it
-                    logger.log(TAG, "Finished loading bloom filter")
-                } else {
-                    logger.log(TAG, "Failed to load bloom filter")
-                    appCoroutineScope.launch(coroutineDispatchers.main) {
-                        application.toast(R.string.ad_block_load_failure)
+                    .flowOn(coroutineDispatchers.io)
+                    .catch { e ->
+                        logger.log(TAG, "Hosts load flow failed", e)
+                        emit(null)
                     }
-                }
-                readyLatch.countDown()
+                    .collect {
+                        // If we were unsuccessful in loading hosts, and we don't have hosts in the repo, don't
+                        // allow initialization, as false positives will result in bad browsing experience.
+                        if (hostsRepository.hasHosts() && it != null) {
+                            bloomFilter.delegate = it
+                            logger.log(TAG, "Finished loading bloom filter")
+                        } else {
+                            logger.log(TAG, "Failed to load bloom filter")
+                            appCoroutineScope.launch(coroutineDispatchers.main) {
+                                application.toast(R.string.ad_block_load_failure)
+                            }
+                        }
+                        if (readyLatch.count > 0) readyLatch.countDown()
+                    }
+            } catch (e: Exception) {
+                logger.log(TAG, "Hosts loader crashed", e)
+            } finally {
+                while (readyLatch.count > 0) readyLatch.countDown()
             }
-            .launchIn(appCoroutineScope)
+        }
     }
 
     /**
      * Force the ad blocker to (re)populate its internal hosts filter from the provided hosts data
      * source.
      */
-    fun populateAdBlockerFromDataSource(forceRefresh: Boolean) = loadHostsFlow.tryEmit(forceRefresh)
+    fun populateAdBlockerFromDataSource(forceRefresh: Boolean) {
+        refreshChannel.trySend(forceRefresh)
+    }
 
     private suspend fun createAndSaveBloomFilter(hosts: List<Host>): BloomFilter<Host> {
         logger.log(TAG, "Constructing bloom filter from list")

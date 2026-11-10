@@ -136,10 +136,12 @@ class UserPreferencesDataStore @Inject constructor(
 
     /**
      * The currently enabled filter list ids, intersected with the known registry.
-     * Falls back to the Core defaults if the stored value is empty or invalid.
+     * An explicitly stored empty string means "no lists"; only unknown ids fall back
+     * to the Core defaults.
      */
     suspend fun enabledFilterListIds(): Set<String> {
         val raw = filterListsEnabled.get()
+        if (raw.isEmpty()) return emptySet()
         val parsed = raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
             .filter { acr.browser.lightning.adblock.easylist.FilterListRegistry.byId(it) != null }
             .toSet()

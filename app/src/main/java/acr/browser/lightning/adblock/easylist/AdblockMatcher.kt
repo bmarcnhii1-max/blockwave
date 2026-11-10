@@ -5,10 +5,15 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Matches request URLs against parsed EasyList network rules.
  *
- * Indexing strategy (kept deliberately simple and allocation-light):
- * - `||domain` rules live in [domainIndex] keyed by domain and are only evaluated when the
+ * Thread safety: the rule set is held in an immutable [Rules] snapshot and swapped atomically.
+ * [isBlocked] reads one snapshot into a local variable, so a concurrent [addRules]/[clear]
+ * (e.g. the user tapping "Update filter lists" while a page is loading) can never observe a
+ * partially built index or throw [ConcurrentModificationException].
+ *
+ * Indexing strategy:
+ * - `||domain` rules live in [Rules.domainIndex] keyed by domain and are only evaluated when the
  *   request host is that domain or a subdomain of it.
- * - All other rules live in [genericRules] and are evaluated for every request.
+ * - All other rules live in [Rules.genericRules] and are evaluated for every request.
  * - Decisions are memoised in a bounded cache because pages re-request the same subresources
  *   on reload/scroll.
  *
@@ -19,39 +24,57 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class AdblockMatcher {
 
-    private val domainIndex = ConcurrentHashMap<String, MutableList<NetworkRule>>()
-    private val genericRules = mutableListOf<NetworkRule>()
+    private data class Rules(
+        val domainIndex: Map<String, List<NetworkRule>>,
+        val genericRules: List<NetworkRule>,
+    )
+
+    @Volatile
+    private var rules: Rules = Rules(emptyMap(), emptyList())
+
     private val decisionCache = ConcurrentHashMap<String, Boolean>()
 
     @Volatile
     var ruleCount: Int = 0
         private set
 
-    fun addRules(rules: List<NetworkRule>) {
-        for (rule in rules) {
+    fun addRules(newRules: List<NetworkRule>) {
+        val current = rules
+        val index = LinkedHashMap<String, MutableList<NetworkRule>>()
+        for ((key, list) in current.domainIndex) {
+            index.getOrPut(key) { ArrayList() }.addAll(list)
+        }
+        val generic = ArrayList<NetworkRule>(current.genericRules.size + newRules.size)
+        generic.addAll(current.genericRules)
+        for (rule in newRules) {
             val anchor = rule.domainAnchor
             if (anchor != null) {
-                domainIndex.computeIfAbsent(anchor) { mutableListOf() }.add(rule)
+                index.getOrPut(anchor) { ArrayList() }.add(rule)
             } else {
-                genericRules.add(rule)
+                generic.add(rule)
             }
         }
-        ruleCount = genericRules.size + domainIndex.values.sumOf { it.size }
+        val immutable = Rules(
+            domainIndex = index.mapValues { it.value.toList() },
+            genericRules = generic.toList(),
+        )
+        rules = immutable
+        ruleCount = immutable.genericRules.size + immutable.domainIndex.values.sumOf { it.size }
         decisionCache.clear()
     }
 
     fun clear() {
-        domainIndex.clear()
-        genericRules.clear()
-        decisionCache.clear()
+        rules = Rules(emptyMap(), emptyList())
         ruleCount = 0
+        decisionCache.clear()
     }
 
     /** Returns a copy of all rules currently held by this matcher. */
     fun snapshot(): List<NetworkRule> {
+        val current = rules
         val all = ArrayList<NetworkRule>(ruleCount)
-        all.addAll(genericRules)
-        for (rules in domainIndex.values) all.addAll(rules)
+        all.addAll(current.genericRules)
+        for (list in current.domainIndex.values) all.addAll(list)
         return all
     }
 
@@ -66,6 +89,7 @@ class AdblockMatcher {
         val host = hostOf(requestUrl) ?: return false
         val pageHost = pageUrl?.let { hostOf(it) }
         val isThirdParty = pageHost != null && !isFirstParty(host, pageHost)
+        val current = rules
 
         val cacheKey = requestUrl + "|" + (pageHost ?: "") + "|" + (resourceType ?: "")
         decisionCache[cacheKey]?.let { return it }
@@ -74,7 +98,7 @@ class AdblockMatcher {
         var excepted = false
         var importantBlocked = false
 
-        for (rule in candidates(host)) {
+        for (rule in candidates(current, host)) {
             if (!appliesTo(rule, pageHost, resourceType, isThirdParty)) continue
             if (!rule.regex.containsMatchIn(requestUrl)) continue
             when {
@@ -95,22 +119,21 @@ class AdblockMatcher {
         return result
     }
 
-    private fun candidates(host: String): List<NetworkRule> {
+    private fun candidates(current: Rules, host: String): List<NetworkRule> {
         // Domain rules for the host itself and every parent suffix (sub.example.com ->
-        // sub.example.com, example.com, com is skipped: single-label suffixes are useless).
+        // sub.example.com, example.com; single-label suffixes are skipped as useless).
         val indexed = ArrayList<NetworkRule>()
-        var current = host
+        var cursor = host
         while (true) {
-            domainIndex[current]?.let { indexed.addAll(it) }
-            val dot = current.indexOf('.')
+            current.domainIndex[cursor]?.let { indexed.addAll(it) }
+            val dot = cursor.indexOf('.')
             if (dot < 0) break
-            current = current.substring(dot + 1)
-            if (!current.contains('.')) break
+            cursor = cursor.substring(dot + 1)
+            if (!cursor.contains('.')) break
         }
-        if (indexed.isEmpty()) return genericRules
-        // Avoid mutating the shared generic list while iterating.
-        val all = ArrayList<NetworkRule>(genericRules.size + indexed.size)
-        all.addAll(genericRules)
+        if (indexed.isEmpty()) return current.genericRules
+        val all = ArrayList<NetworkRule>(current.genericRules.size + indexed.size)
+        all.addAll(current.genericRules)
         all.addAll(indexed)
         return all
     }
@@ -122,16 +145,20 @@ class AdblockMatcher {
         isThirdParty: Boolean,
     ): Boolean {
         if (!EasyListParser.typeMatches(rule.types, resourceType)) return false
-        if (rule.thirdParty != null && pageHost != null && rule.thirdParty != isThirdParty) {
+        if (pageHost == null) {
+            // Without page context we cannot evaluate page-scoped options. Skip the rule rather
+            // than applying a $third-party/$domain restriction we cannot verify.
+            if (rule.thirdParty != null || rule.domains != null || rule.excludedDomains != null) {
+                return false
+            }
+            return true
+        }
+        if (rule.thirdParty != null && rule.thirdParty != isThirdParty) return false
+        if (rule.domains != null && rule.domains.none { domainMatches(pageHost, it) }) {
             return false
         }
-        if (pageHost != null) {
-            if (rule.domains != null && rule.domains.none { domainMatches(pageHost, it) }) {
-                return false
-            }
-            if (rule.excludedDomains != null && rule.excludedDomains.any { domainMatches(pageHost, it) }) {
-                return false
-            }
+        if (rule.excludedDomains != null && rule.excludedDomains.any { domainMatches(pageHost, it) }) {
+            return false
         }
         return true
     }
@@ -139,27 +166,65 @@ class AdblockMatcher {
     private fun domainMatches(host: String, domain: String): Boolean =
         host == domain || host.endsWith(".$domain")
 
+    /**
+     * First-party means the two hosts share a registrable base domain (eTLD+1 approximation).
+     * Sibling subdomains (`a.example.org` vs `b.example.org`) are therefore first-party, which
+     * matches Adblock Plus / uBlock Origin semantics and prevents `$third-party` overblocking.
+     */
     private fun isFirstParty(requestHost: String, pageHost: String): Boolean =
-        requestHost == pageHost || requestHost.endsWith(".$pageHost") ||
-            pageHost.endsWith(".$requestHost")
+        baseDomain(requestHost) == baseDomain(pageHost)
 
-    /** Extracts the lowercase host from an http(s) URL, or null if there is none. */
+    /** Extracts the lowercase host from a URL with an authority, or null if there is none. */
     fun hostOf(url: String): String? {
         val schemeEnd = url.indexOf("://")
         if (schemeEnd < 0) return null
-        var start = schemeEnd + 3
+        val start = schemeEnd + 3
+        var authorityStart = start
         // Strip userinfo.
         val at = url.indexOf('@', start)
-        val slash = url.indexOf('/', start).takeIf { it >= 0 } ?: url.length
-        if (at >= 0 && at < slash) start = at + 1
-        var end = slash
-        val colon = url.indexOf(':', start)
-        if (colon >= 0 && colon < end) end = colon
-        if (end <= start) return null
-        return url.substring(start, end).lowercase()
+        val authorityEnd = listOf('/', '?', '#')
+            .mapNotNull { url.indexOf(it, start).takeIf { i -> i >= 0 } }
+            .minOrNull() ?: url.length
+        if (at >= 0 && at < authorityEnd) authorityStart = at + 1
+        if (authorityEnd <= authorityStart) return null
+        val authority = url.substring(authorityStart, authorityEnd)
+        // IPv6 literal: [2001:db8::1]:8080
+        if (authority.startsWith("[")) {
+            val close = authority.indexOf(']')
+            if (close < 0) return null
+            return authority.substring(1, close).lowercase()
+        }
+        val colon = authority.indexOf(':')
+        val host = if (colon >= 0) authority.substring(0, colon) else authority
+        if (host.isEmpty()) return null
+        return host.lowercase()
     }
 
     companion object {
         private const val MAX_CACHE_ENTRIES = 20_000
+
+        /** Common two-level public suffixes; used to approximate the registrable domain. */
+        private val TWO_LEVEL_SUFFIXES = setOf(
+            "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "org.au",
+            "co.jp", "or.jp", "ne.jp", "com.br", "com.mx", "com.ar", "co.za", "co.nz",
+            "co.in", "com.hk", "com.tw", "com.cn", "co.kr", "com.tr", "co.il", "co.id",
+            "com.sg", "com.ph", "co.th", "com.vn", "com.ua", "com.pl", "com.eg",
+            "co.ke", "com.ng", "com.pk", "com.bd", "co.tz", "co.ug", "com.my",
+        )
+
+        /**
+         * Approximates the registrable domain (eTLD+1) without a full public suffix list.
+         * `a.example.org` -> `example.org`; `a.example.co.uk` -> `example.co.uk`.
+         */
+        fun baseDomain(host: String): String {
+            val parts = host.split('.')
+            if (parts.size <= 2) return host
+            val lastTwo = parts.takeLast(2).joinToString(".")
+            return if (lastTwo in TWO_LEVEL_SUFFIXES && parts.size >= 3) {
+                parts.takeLast(3).joinToString(".")
+            } else {
+                lastTwo
+            }
+        }
     }
 }

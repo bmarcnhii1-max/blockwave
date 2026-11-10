@@ -37,9 +37,12 @@ import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import kotlin.math.abs
@@ -135,18 +138,23 @@ class TabWebViewClient @AssistedInject constructor(
      */
     var searchQuerySelection: Pair<Int, Int> = Pair(0, 0)
 
+    @Volatile
     private var currentUrl: String = ""
     private var isReflowRunning: Boolean = false
     private var zoomScale: Float = 0.0F
     private var urlWithSslError: String? = null
     private var lastView: WebView? = null
 
+    /** Serializes cosmetic injections; a new navigation cancels the in-flight one. */
+    private var cosmeticJob: Job? = null
+
     init {
         // On cold start the filter lists may not be downloaded yet when the first page
         // loads, so the onPageStarted injection finds an empty engine. Re-inject once the
         // engine signals readiness, so cosmetic filtering is not lost for that page.
+        // Fully suspending: never blocks Main, so the Deferred (completed on Main) can run.
         tabCoroutineScope.launch {
-            val blocker = runBlocking { adBlocker.await() }
+            val blocker = adBlocker.await()
             (blocker as? CompositeAdBlocker)?.easyListReady?.await()
             val view = lastView
             if (view != null && currentUrl.isNotEmpty()) {
@@ -161,26 +169,39 @@ class TabWebViewClient @AssistedInject constructor(
      */
     val blockedCount = MutableStateFlow(0)
 
-    private fun shouldBlockRequest(pageUrl: String, requestUri: Uri, isMainFrame: Boolean) =
-        !allowListModel.isUrlAllowedAds(pageUrl) &&
-            runBlocking {
-                val pageUri = pageUrl.takeIf { it.isNotEmpty() }?.let(Uri::parse)
-                adBlocker.await().isAd(requestUri, pageUri, isMainFrame)
-            }
+    private fun shouldBlockRequest(pageUrl: String, requestUri: Uri, isMainFrame: Boolean): Boolean {
+        if (allowListModel.isUrlAllowedAds(pageUrl)) return false
+        // Runs on WebView worker threads. Bounded wait: if the blocker is not ready within
+        // the timeout we allow the request rather than stalling page load forever.
+        return runBlocking {
+            val blocker = withTimeoutOrNull(BLOCKER_WAIT_MS) { adBlocker.await() } ?: return@runBlocking false
+            val pageUri = pageUrl.takeIf { it.isNotEmpty() }?.let(Uri::parse)
+            blocker.isAd(requestUri, pageUri, isMainFrame)
+        }
+    }
 
     /**
      * Injects cosmetic (element-hiding) CSS for [url] into [view], unless ads are allowed
-     * for the page. Called on page start and finish. CSS arrives in chunks (a single blob
-     * with tens of thousands of selectors exceeds evaluateJavascript limits and is silently
-     * dropped); injection replaces previously injected chunks.
+     * for the page. Suspending: resolves the blocker off the caller's hands and never blocks
+     * Main. CSS arrives in chunks (a single blob with tens of thousands of selectors exceeds
+     * evaluateJavascript limits and is silently dropped); injection replaces previously
+     * injected chunks. A new call cancels the in-flight one so redirects/SPA navigations
+     * cannot interleave stale and fresh rule sets.
      */
-    private fun injectCosmeticCss(view: WebView, url: String) {
+    private suspend fun injectCosmeticCss(view: WebView, url: String) {
         if (url.isEmpty() || allowListModel.isUrlAllowedAds(url)) return
-        val blocker = runBlocking { adBlocker.await() }
+        val blocker = withTimeoutOrNull(BLOCKER_WAIT_MS) { adBlocker.await() } ?: return
         val chunks = (blocker as? CompositeAdBlocker)?.cosmeticCssChunksFor(url) ?: return
         if (chunks.isEmpty()) return
-        logger.log(TAG, "Injecting cosmetic CSS for $url in ${chunks.size} chunk(s)")
-        view.evaluateJavascript(
+        // evaluateJavascript must run on the UI thread; post it if we are elsewhere.
+        fun eval(script: String, callback: ((String?) -> Unit)?) {
+            try {
+                view.post { try { view.evaluateJavascript(script, callback) } catch (_: Exception) { } }
+            } catch (_: Exception) {
+                // View destroyed between scheduling and execution — nothing to inject into.
+            }
+        }
+        eval(
             "(function(){document.querySelectorAll('style[data-adblock]').forEach(function(e){e.remove()});" +
                 "window.__adblockStyles=[];})()",
             null
@@ -202,11 +223,18 @@ class TabWebViewClient @AssistedInject constructor(
                 "(window.__adblockStyles||[]).forEach(function(n){if(!n.isConnected)h.appendChild(n);});" +
                 "});window.__adblockObserver.observe(document.documentElement,{childList:true,subtree:true});}" +
                 "return document.querySelectorAll('style[data-adblock]').length;}catch(e){return 'ERR:'+e.message;}})()"
-            view.evaluateJavascript(script) {
+            eval(script) {
                 injectChunk(index + 1)
             }
         }
         injectChunk(0)
+    }
+
+    private fun scheduleCosmeticInjection(view: WebView, url: String) {
+        cosmeticJob?.cancel()
+        cosmeticJob = tabCoroutineScope.launch {
+            injectCosmeticCss(view, url)
+        }
     }
 
     private fun updateUrl(url: String) {
@@ -221,7 +249,11 @@ class TabWebViewClient @AssistedInject constructor(
 
     override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
         super.doUpdateVisitedHistory(view, url, isReload)
+        lastView = view
         updateUrl(url)
+        // SPA navigations (pushState/replaceState) never trigger onPageStarted/onPageFinished,
+        // so stale domain-specific rules would stay in the DOM without this.
+        scheduleCosmeticInjection(view, url)
         tabCoroutineScope.launch {
             urlSharedFlow.emit(url)
             goBackSharedFlow.emit(view.canGoBack())
@@ -232,8 +264,10 @@ class TabWebViewClient @AssistedInject constructor(
     override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
         super.onPageStarted(view, url, favicon)
         lastView = view
-        injectCosmeticCss(view, url)
+        // currentUrl must track the new page BEFORE any blocking decision: workers read it
+        // for the allowlist and page context, and injection runs async after this returns.
         updateUrl(url)
+        scheduleCosmeticInjection(view, url)
         tabCoroutineScope.launch {
             startedSharedFlow.emit(Unit)
             urlSharedFlow.emit(url)
@@ -251,7 +285,7 @@ class TabWebViewClient @AssistedInject constructor(
 
     override fun onPageFinished(view: WebView, url: String) {
         super.onPageFinished(view, url)
-        injectCosmeticCss(view, url)
+        scheduleCosmeticInjection(view, url)
         tabCoroutineScope.launch {
             urlSharedFlow.emit(url)
             goBackSharedFlow.emit(view.canGoBack())
@@ -395,7 +429,7 @@ class TabWebViewClient @AssistedInject constructor(
         request: WebResourceRequest
     ): WebResourceResponse? {
         if (shouldBlockRequest(currentUrl, request.url, request.isForMainFrame)) {
-            blockedCount.value = blockedCount.value + 1
+            blockedCount.update { it + 1 }
             val empty = ByteArrayInputStream(emptyResponseByteArray)
             val response = WebResourceResponse(BLOCKED_RESPONSE_MIME_TYPE, BLOCKED_RESPONSE_ENCODING, empty)
             // Report a 404 instead of an empty 200: ad/tracker test pages (and real detection
@@ -441,6 +475,7 @@ class TabWebViewClient @AssistedInject constructor(
 
     companion object {
         private const val TAG = "TabWebViewClient"
+        private const val BLOCKER_WAIT_MS = 10_000L
 
         private val emptyResponseByteArray: ByteArray = byteArrayOf()
 

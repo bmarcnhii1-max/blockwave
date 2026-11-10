@@ -26,9 +26,10 @@ A fast Android browser with a strong built-in ad blocker.
   Cosmetic rules (`##` selectors) are parsed from the same lists and injected as hiding CSS,
   so banners and popups that load from the page's own domain are hidden too. Procedural
   cosmetics (`#?#`, `#$#`) and regex rules are skipped. Blocked requests are answered with
-  HTTP 404 (not an empty 200), so scripts, images, iframes and fetch() fail the way they
-  would with a network-level blocker — this matters for ad-blocker detection scripts, which
-  treat an empty 200 as a successful load.
+  HTTP 404 (not an empty 200), so scripts, images and iframes fire error events. Note:
+  `fetch()` resolves a 404 as a completed response (it only rejects on a true network
+  error), so tests that require `fetch()` to throw cannot pass on WebView — an empty 200
+  would additionally look like a successful load, which is why 404 is used.
 - **Per-site toggle + counter**: open the Page Tools sheet (wrench icon) to allow/block ads for the
   current site; the header shows how many requests were blocked on the page.
 - **Incognito mode**: built in (menu → "Incognito tab"). Incognito runs in a separate process,
