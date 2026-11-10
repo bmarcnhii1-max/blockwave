@@ -223,7 +223,10 @@ class TabWebViewClient @AssistedInject constructor(
                 "(window.__adblockStyles||[]).forEach(function(n){if(!n.isConnected)h.appendChild(n);});" +
                 "});window.__adblockObserver.observe(document.documentElement,{childList:true,subtree:true});}" +
                 "return document.querySelectorAll('style[data-adblock]').length;}catch(e){return 'ERR:'+e.message;}})()"
-            eval(script) {
+            eval(script) { result ->
+                if (result == null) {
+                    logger.log(TAG, "Cosmetic chunk $index ENGINE DROP (null result)")
+                }
                 injectChunk(index + 1)
             }
         }

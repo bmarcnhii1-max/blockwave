@@ -1,7 +1,10 @@
 package acr.browser.lightning.di
 
 import acr.browser.lightning.BrowserApp
+import acr.browser.lightning.adblock.allowlist.SessionAllowListModel
+import acr.browser.lightning.adblock.easylist.EasyListAdBlocker
 import acr.browser.lightning.device.BuildInfo
+import acr.browser.lightning.preference.UserPreferencesDataStore
 import android.app.Application
 import dagger.BindsInstance
 import dagger.Component
@@ -28,6 +31,13 @@ interface AppComponent {
     }
 
     fun inject(app: BrowserApp)
+
+    /** Shared adblock engine for the experimental Gecko screen (same rules/toggles). */
+    fun easyListAdBlocker(): EasyListAdBlocker
+
+    fun userPreferencesDataStore(): UserPreferencesDataStore
+
+    fun sessionAllowListModel(): SessionAllowListModel
 
     fun browserComponentBuilder(): BrowserComponent.Builder
 

@@ -42,14 +42,19 @@ A fast Android browser with a strong built-in ad blocker.
   ad/pop-under networks are covered by the same lists. Ads served from the same domain as the
   content, server-side ads, and anti-adblock walls are only partially coverable by lists.
 
-### Gecko engine (experimental, phase 1)
+### Gecko engine (experimental, phase 2)
 
-The browser runs on the system WebView. A standalone GeckoView 160 screen exists alongside it:
+The browser runs on the system WebView. A GeckoView 160 screen exists alongside it:
 menu → "Open in Gecko (beta)" opens the current page in a Gecko session with strict tracking
-protection. It is a minimal viewer (address bar, progress, back navigation), not yet integrated
-with tabs/history/bookmarks/downloads/adblock lists. Consequences of this phase: minSdk is now
-26 (Android 8.0), and the APK grew a lot (Gecko native libraries; debug builds ship arm64 only,
-release keeps all ABIs).
+protection. It is now a usable mini-browser: multiple tabs, back/forward/reload, share, popup
+handling. Blocking reuses the shared EasyList engine — ad popups/frames without a user gesture
+are denied via navigation callbacks, and cosmetic hiding CSS is injected through javascript:
+URLs (verified: "Block visibility" checks pass). Measured on-device: **71/100 on
+adblock-tester.com** — the remaining failures are script-execution and file-loading checks that
+require true subresource network blocking, which stable GeckoView only grants to signed
+extensions. History/bookmarks/downloads and the per-site allowlist UI stay WebView-side.
+Consequences: minSdk is 26 (Android 8.0), and the APK grew a lot (Gecko native libraries;
+debug builds ship arm64 only, release keeps all ABIs).
 
 ### Build
 

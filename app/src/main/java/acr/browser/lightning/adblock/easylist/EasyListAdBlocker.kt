@@ -63,6 +63,13 @@ class EasyListAdBlocker @Inject constructor(
     /** True once the initial load has finished. */
     val isReady: Boolean get() = readyLatch.count == 0L
 
+    /**
+     * Current rule snapshot for callers that cannot block (e.g. Gecko's navigation
+     * callback on the main thread). Null until the engine is ready; callers must
+     * treat null as "allow".
+     */
+    fun matcherSnapshot(): AdblockMatcher? = if (isReady) matcher else null
+
     init {
         appCoroutineScope.launch(coroutineDispatchers.io) {
             try {
@@ -232,7 +239,7 @@ class EasyListAdBlocker @Inject constructor(
      * a single injected CSS blob with tens of thousands of selectors exceeds WebView's
      * evaluateJavascript size limits and is silently dropped.
      */
-    fun cosmeticCssChunksFor(pageUrl: String, maxChunkBytes: Int = 20_000): List<String> {
+    fun cosmeticCssChunksFor(pageUrl: String, maxChunkBytes: Int = 128_000): List<String> {
         if (!isReady) return emptyList()
         val selectors = cosmeticRules.selectorsFor(pageUrl)
         if (selectors.isEmpty()) return emptyList()
