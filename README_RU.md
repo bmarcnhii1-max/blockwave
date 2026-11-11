@@ -85,7 +85,7 @@ easylist/ruadlist на GitHub; части EasyList Adult — из официал
 ### Результаты тестов
 
 - **adblock-tester.com: 100/100** (11 сервисов, 22 проверки)
-- **adblock.turtlecute.org: 2/130** — оставшиеся проверки там требуют настоящей сетевой
+- **adblock.turtlecute.org: 30/130** — оставшиеся проверки там требуют настоящей сетевой
   ошибки от `fetch()`, которую WebView `shouldInterceptRequest` не умеет давать
   (он умеет только подделывать «успешный» ответ). Это архитектурный лимит WebView,
   он же у DuckDuckGo и других WebView-браузеров.

@@ -85,7 +85,7 @@ on launch when older than 24h, or manually from Settings → Ad blocking →
 ### Test results
 
 - **adblock-tester.com: 100/100** (11 services, 22 checks)
-- **adblock.turtlecute.org: 2/130** — the remaining checks there require a real network
+- **adblock.turtlecute.org: 30/130** — the remaining checks there require a real network
   error from `fetch()`, which WebView's `shouldInterceptRequest` API cannot produce
   (it can only fake a successful response). This is an architectural limit of WebView,
   shared by DuckDuckGo and other WebView-based browsers.

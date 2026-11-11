@@ -21,7 +21,7 @@ android {
         // 26 (Android 8.0): minimum required by GeckoView 160 (experimental engine).
         minSdk = 26
         targetSdk = 37
-        versionName = "5.1.0"
+        versionName = "1.0.1"
         vectorDrawables.useSupportLibrary = true
     }
 
@@ -77,7 +77,8 @@ android {
 
     flavorDimensions.add("capabilities")
 
-    val commonVersionCode = 102
+    // BlockWave public release 1.0.1 — bump on every release so the APK installs as an update.
+    val commonVersionCode = 103
 
     productFlavors {
         create("lightningPlus") {
