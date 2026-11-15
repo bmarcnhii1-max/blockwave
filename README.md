@@ -82,8 +82,8 @@ are dead or unreachable, hence the GitHub sources). List files are cached and re
 on launch when older than 24h, or manually from Settings → Ad blocking →
 "Update filter lists now". On top of the downloaded lists, the bundled
 `assets/blockwave-supplements.txt` (versioned with the app, always on) carries a few
-surgical rules for first-party ad creatives upstream lists miss — e.g. Pornhub's
-pre-roll path `evtubescms.phncdn.com/pre_videos/`.
+surgical rules for first-party ad creatives upstream lists miss — e.g. pre-roll
+video paths served from a site's own CDN.
 
 ### Test results
 
