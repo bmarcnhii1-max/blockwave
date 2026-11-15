@@ -36,6 +36,16 @@ class FilterListDownloader @Inject constructor(
     fun cacheFile(listId: String): File =
         File(File(application.filesDir, CACHE_DIR), "$listId.txt")
 
+    /**
+     * Reads the bundled BlockWave supplements asset, or null if it is missing/unreadable.
+     * Supplements are versioned with the app and never downloaded.
+     */
+    fun readBundledSupplements(): String? = try {
+        application.assets.open(SUPPLEMENTS_ASSET).bufferedReader().use { it.readText() }
+    } catch (_: Exception) {
+        null
+    }
+
     suspend fun download(list: FilterList): Boolean =
         downloadUrl(list.url, cacheFile(list.id), list.id)
 
@@ -120,6 +130,7 @@ class FilterListDownloader @Inject constructor(
     companion object {
         private const val TAG = "FilterListDownloader"
         private const val CACHE_DIR = "filterlists"
+        const val SUPPLEMENTS_ASSET = "blockwave-supplements.txt"
         private const val MAX_BYTES = 10 * 1024 * 1024
         private const val FALLBACK_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"

@@ -80,7 +80,10 @@ easylist/ruadlist GitHub repo; the EasyList Adult parts come from the official
 easylist/easylist GitHub repo (the former easylistrussian.txt / Fanboy / AdGuard URLs
 are dead or unreachable, hence the GitHub sources). List files are cached and refreshed
 on launch when older than 24h, or manually from Settings → Ad blocking →
-"Update filter lists now".
+"Update filter lists now". On top of the downloaded lists, the bundled
+`assets/blockwave-supplements.txt` (versioned with the app, always on) carries a few
+surgical rules for first-party ad creatives upstream lists miss — e.g. Pornhub's
+pre-roll path `evtubescms.phncdn.com/pre_videos/`.
 
 ### Test results
 

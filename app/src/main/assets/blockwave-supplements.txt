@@ -1,0 +1,8 @@
+! BlockWave supplements v1
+! Custom network/cosmetic rules for first-party ad creatives that upstream
+! filter lists miss. Bundled with the app (never downloaded); parsed on every
+! engine load together with the downloaded lists. One rule per line, EasyList
+! syntax. Keep this file small and surgical: every rule here applies to all users.
+!
+! Pornhub pre-roll creatives (first-party CDN, path never used by real videos):
+||evtubescms.phncdn.com/pre_videos/

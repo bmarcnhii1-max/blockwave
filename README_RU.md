@@ -80,7 +80,10 @@ EasyList/EasyPrivacy — с easylist.to; части RU AdList — из офиц�
 easylist/ruadlist на GitHub; части EasyList Adult — из официального easylist/easylist
 (старые URL easylistrussian.txt / Fanboy / AdGuard мертвы или недоступны, поэтому GitHub).
 Кэш обновляется при старте, если старше 24 ч, или вручную: Настройки → Блокировка рекламы →
-«Обновить списки фильтров сейчас».
+«Обновить списки фильтров сейчас». Поверх скачиваемых списков всегда работает
+встроенный `assets/blockwave-supplements.txt` (обновляется с приложением) — несколько
+точечных правил против first-party-креативов, которых нет в апстриме, например пре-роллы
+Pornhub `evtubescms.phncdn.com/pre_videos/`.
 
 ### Результаты тестов
 

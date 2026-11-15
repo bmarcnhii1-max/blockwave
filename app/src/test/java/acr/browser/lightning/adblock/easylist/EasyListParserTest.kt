@@ -55,6 +55,31 @@ class EasyListParserTest {
     }
 
     @Test
+    fun `supplement first-party pre-roll path is blocked`() {
+        val parsed = parser.parse("||evtubescms.phncdn.com/pre_videos/\n", "blockwave")
+
+        assertThat(parsed.rules).hasSize(1)
+
+        val matcher = AdblockMatcher()
+        matcher.addRules(parsed.rules)
+        assertThat(
+            matcher.isBlocked(
+                "https://evtubescms.phncdn.com/pre_videos/002/945/492/2945492/mp4_720.mp4",
+                "https://www.pornhub.com/",
+                "media"
+            )
+        ).isTrue()
+        // Normal video CDN traffic must not match.
+        assertThat(
+            matcher.isBlocked(
+                "https://pix-fl.phncdn.com/c6371/videos/202507/20/16480875/original_16480875.mp4",
+                "https://www.pornhub.com/",
+                "media"
+            )
+        ).isFalse()
+    }
+
+    @Test
     fun `popup option matches main frame documents`() {
         val parsed = parser.parse("||ads.example.com^${'$'}popup\n", "test")
 

@@ -157,6 +157,28 @@ class EasyListAdBlocker @Inject constructor(
             }
         }
 
+        // Bundled supplements (first-party creatives upstream lists miss). Always on:
+        // small, surgical, versioned with the app — not a downloaded list.
+        try {
+            val supplementText = withContext(coroutineDispatchers.io) {
+                downloader.readBundledSupplements()
+            }
+            if (supplementText == null) {
+                logger.log(TAG, "No supplements asset, skipping")
+            } else {
+                val parsed = parser.parse(supplementText, SUPPLEMENTS_ID)
+                val cosmetics = cosmeticParser.parse(supplementText)
+                fresh.addRules(parsed.rules)
+                generalCosmetics.addAll(cosmetics.rules.generalSelectors)
+                for ((domain, selectors) in cosmetics.rules.domainSelectors) {
+                    domainCosmetics.getOrPut(domain) { mutableListOf() }.addAll(selectors)
+                }
+                logger.log(TAG, "Supplements: ${parsed.rules.size} network rules")
+            }
+        } catch (e: Exception) {
+            logger.log(TAG, "Failed to load supplements asset", e)
+        }
+
         // Atomic swap: readers always see one fully built matcher, never a half-cleared one.
         matcher = fresh
         cosmeticRules = CosmeticRules(
@@ -296,5 +318,7 @@ class EasyListAdBlocker @Inject constructor(
         private const val MAX_INCLUDES = 32
         private const val RUADLIST_RAW_BASE =
             "https://raw.githubusercontent.com/easylist/ruadlist/master/"
+        private const val SUPPLEMENTS_ASSET = "blockwave-supplements.txt"
+        private const val SUPPLEMENTS_ID = "blockwave"
     }
 }
