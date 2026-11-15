@@ -22,6 +22,10 @@ ehthumbs.db
 local.properties
 .directory
 
+# JVM crash and replay logs from Gradle builds
+hs_err_pid*.log
+replay_pid*.log
+
 # Intellij project files
 *.ipr
 *.iws
