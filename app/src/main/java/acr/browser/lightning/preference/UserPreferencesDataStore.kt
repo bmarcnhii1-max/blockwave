@@ -117,21 +117,12 @@ class UserPreferencesDataStore @Inject constructor(
 
     /**
      * Comma-separated ids of enabled EasyList filter lists (see FilterListRegistry).
-     * Defaults to the Core bundle; Extended lists are enabled via [maximumAdblockEnabled].
+     * Defaults to the Core bundle; each list can be toggled individually in settings.
      */
     val filterListsEnabled: NonNullPreferenceStore<String> = NonNullPreferenceStore(
         key = stringPreferencesKey(FILTER_LISTS_ENABLED),
         dataStore = dataStore,
         defaultValue = acr.browser.lightning.adblock.easylist.FilterListRegistry.DEFAULT_ENABLED_IDS.joinToString(",")
-    )
-
-    /**
-     * True if the Extended ("Maximum") filter list bundle is enabled in addition to Core.
-     */
-    val maximumAdblockEnabled: NonNullPreferenceStore<Boolean> = NonNullPreferenceStore(
-        key = booleanPreferencesKey(MAXIMUM_ADBLOCK),
-        dataStore = dataStore,
-        defaultValue = false
     )
 
     /**
@@ -150,21 +141,6 @@ class UserPreferencesDataStore @Inject constructor(
         } else {
             parsed
         }
-    }
-
-    /**
-     * Enables/disables the Extended bundle, keeping the user's Core selection intact.
-     */
-    suspend fun setMaximumAdblockEnabled(enabled: Boolean) {
-        val registry = acr.browser.lightning.adblock.easylist.FilterListRegistry
-        maximumAdblockEnabled.set(enabled)
-        val ids = enabledFilterListIds().toMutableSet()
-        if (enabled) {
-            ids.addAll(registry.EXTENDED.map { it.id })
-        } else {
-            ids.removeAll(registry.EXTENDED.map { it.id })
-        }
-        filterListsEnabled.set(ids.joinToString(","))
     }
 
     /**
@@ -611,4 +587,3 @@ private const val OPEN_AVAILABLE_APPS = "openAvailableApps"
 private const val LIMIT_ACTIVE_TABS = "limitActiveTabs"
 private const val BROWSER_ICON = "browserIcon"
 private const val FILTER_LISTS_ENABLED = "filterListsEnabled"
-private const val MAXIMUM_ADBLOCK = "maximumAdblock"

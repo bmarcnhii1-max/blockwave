@@ -124,8 +124,6 @@
     <!-- Ad block -->
     <string name="block_ads">Block ads</string>
     <string name="ads_blocked_count">%1$d blocked</string>
-    <string name="block_maximum">Maximum blocking</string>
-    <string name="block_maximum_summary">Also enable Extended filter lists. Blocks more, but slower and some sites may break.</string>
     <string name="block_filters_title">Filter lists</string>
     <string name="block_filters_refresh">Update filter lists now</string>
     <string name="block_filters_refresh_summary">Download the latest rules for enabled lists</string>

@@ -20,9 +20,9 @@ A fast Android browser with a strong built-in ad blocker.
 - **Ad blocking (on by default)**: two engines behind one switch —
   1. the bundled hosts file (`assets/hosts.txt`, domain-only, works offline on first launch);
   2. EasyList-style network rules downloaded at runtime (path, resource-type, per-domain and
-     third-party aware). Core lists enabled by default: EasyList, RU AdList, EasyPrivacy.
-     Settings → Ad blocking has a **Maximum** toggle that additionally enables Extended lists
-     (EasyList Adult parts) — blocks more, but slower and some sites may break.
+     third-party aware, `$popup` matched as document loads). Core lists enabled by default:
+     EasyList, RU AdList, EasyPrivacy, EasyList Adult parts. Each list can be toggled
+     individually in Settings → Ad blocking.
   Cosmetic rules (`##` selectors) are parsed from the same lists and injected as hiding CSS,
   so banners and popups that load from the page's own domain are hidden too. Procedural
   cosmetics (`#?#`, `#$#`) and regex rules are skipped. Blocked requests are answered with

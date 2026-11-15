@@ -61,26 +61,26 @@ object FilterListRegistry {
             url = "https://raw.githubusercontent.com/easylist/ruadlist/master/cntblock.txt",
             tier = FilterList.Tier.CORE,
         ),
-        // Extended — OFF by default, enabled with the "Maximum" toggle.
-        // Parts of EasyList Adult (easylist/easylist repo); block parts only, since
-        // $popup rules are not supported by the parser.
+        // Core as well: adult ad/pop-under networks are a major complaint category and
+        // these lists are small. (Moved from Extended in 1.0.1: with them off by default,
+        // adult sites were barely filtered at all.)
         FilterList(
             id = "adult-block",
             name = "EasyList Adult (site blocks)",
             url = "https://raw.githubusercontent.com/easylist/easylist/master/easylist_adult/adult_specific_block.txt",
-            tier = FilterList.Tier.EXTENDED,
+            tier = FilterList.Tier.CORE,
         ),
         FilterList(
             id = "adult-hide",
             name = "EasyList Adult (hide)",
             url = "https://raw.githubusercontent.com/easylist/easylist/master/easylist_adult/adult_specific_hide.txt",
-            tier = FilterList.Tier.EXTENDED,
+            tier = FilterList.Tier.CORE,
         ),
         FilterList(
             id = "adult-thirdparty",
             name = "EasyList Adult (third-party)",
             url = "https://raw.githubusercontent.com/easylist/easylist/master/easylist_adult/adult_thirdparty.txt",
-            tier = FilterList.Tier.EXTENDED,
+            tier = FilterList.Tier.CORE,
         ),
     )
 

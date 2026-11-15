@@ -433,6 +433,7 @@ class TabWebViewClient @AssistedInject constructor(
     ): WebResourceResponse? {
         if (shouldBlockRequest(currentUrl, request.url, request.isForMainFrame)) {
             blockedCount.update { it + 1 }
+            logger.log(TAG, "Blocked ad request: ${request.url}")
             val empty = ByteArrayInputStream(emptyResponseByteArray)
             val response = WebResourceResponse(BLOCKED_RESPONSE_MIME_TYPE, BLOCKED_RESPONSE_ENCODING, empty)
             // Report a 404 instead of an empty 200: ad/tracker test pages (and real detection

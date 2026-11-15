@@ -20,12 +20,13 @@ data class ParsedRules(
  * - `@@` exception rules, `$important`
  * - `||domain` anchor, leading `|` start anchor, trailing `|` end anchor
  * - `*` wildcard, `^` separator placeholder
- * - `$` options: resource types, `domain=` (incl. `~` exclusions), `third-party` / `~third-party`
+ * - `$` options: resource types, `domain=` (incl. `~` exclusions), `third-party` / `~third-party`,
+ *   `$popup` (matched as main-frame document loads — popups open as new tabs here)
  *
  * Intentionally unsupported (rule is skipped, never miscompiled):
  * - cosmetic rules (`##`, `#@#`, `#?#`, `#$#`, …)
  * - regex-pattern rules (`/pattern/…`)
- * - `$popup`, `$redirect`, `$csp`, `$removeparam`, `$header`, `$jsonprune`, `$rewrite`, …
+ * - `$redirect`, `$csp`, `$removeparam`, `$header`, `$jsonprune`, `$rewrite`, …
  *
  * The parser is pure JVM and Android-free so it can be unit-tested directly.
  */
@@ -98,6 +99,14 @@ class EasyListParser {
                     option == "important" -> important = true
                     option == "third-party" -> thirdParty = true
                     option == "~third-party" -> thirdParty = false
+                    option == "popup" -> {
+                        // Popup-ad URLs open as new tabs whose main-frame request passes
+                        // through shouldInterceptRequest, so match them as documents.
+                        // (Blocking a direct navigation to an ad-server URL is acceptable
+                        // collateral: those hosts serve nothing but ads.)
+                        if (types == null) types = mutableSetOf()
+                        types.add("document")
+                    }
                     option in SUPPORTED_TYPES -> {
                         if (types == null) types = mutableSetOf()
                         types.add(option)

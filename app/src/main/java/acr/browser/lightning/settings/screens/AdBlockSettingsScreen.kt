@@ -37,15 +37,6 @@ class AdBlockSettingsScreen @Inject constructor(
                     userPreferencesDataStore.adBlockEnabled.set(it)
                     null
                 }),
-            ToggleState(
-                title = resourceProvider.stringResource(R.string.block_maximum),
-                summary = { resourceProvider.stringResource(R.string.block_maximum_summary) },
-                isChecked = { userPreferencesDataStore.maximumAdblockEnabled.get() },
-                onToggle = {
-                    userPreferencesDataStore.setMaximumAdblockEnabled(it)
-                    easyListAdBlocker.reload()
-                    null
-                }),
             *FilterListRegistry.ALL.map { list ->
                 ToggleState(
                     title = list.name,

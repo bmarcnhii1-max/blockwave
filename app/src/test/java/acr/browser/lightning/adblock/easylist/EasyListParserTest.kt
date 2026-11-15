@@ -45,13 +45,26 @@ class EasyListParserTest {
     fun `unsupported options skip the rule`() {
         val parsed = parser.parse(
             """
-            ||ads.example.com^${'$'}popup
+            ||ads.example.com^${'$'}redirect=noop.js
             ||ads.example.com^${'$'}script,image
             """.trimIndent(), "test"
         )
 
         assertThat(parsed.rules).hasSize(1)
         assertThat(parsed.rules[0].types).containsExactly("script", "image")
+    }
+
+    @Test
+    fun `popup option matches main frame documents`() {
+        val parsed = parser.parse("||ads.example.com^${'$'}popup\n", "test")
+
+        assertThat(parsed.rules).hasSize(1)
+        assertThat(parsed.rules[0].types).containsExactly("document")
+
+        val matcher = AdblockMatcher()
+        matcher.addRules(parsed.rules)
+        assertThat(matcher.isBlocked("https://ads.example.com/popup.html", "https://site/", "document")).isTrue()
+        assertThat(matcher.isBlocked("https://ads.example.com/popup.html", "https://site/", "script")).isFalse()
     }
 
     @Test
